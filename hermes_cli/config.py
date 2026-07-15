@@ -2266,6 +2266,10 @@ DEFAULT_CONFIG = {
         # extras" without silently stripping MCP tools the parent already has.
         # Set to false for strict intersection.
         "inherit_mcp_toolsets": True,
+        # MCP toolset names to strip from delegated children after
+        # inheritance.  Each entry is an MCP toolset name (e.g.
+        # "mcp-cua-driver").  Empty list (default) = no stripping.
+        "mcp_denylist": [],
         "max_iterations": 50,  # per-subagent iteration cap (each subagent gets its own budget,
                                # independent of the parent's max_iterations)
         # Subagent summaries return to the parent's context verbatim. A batch

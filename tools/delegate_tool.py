@@ -526,6 +526,34 @@ def _get_inherit_mcp_toolsets() -> bool:
     return is_truthy_value(cfg.get("inherit_mcp_toolsets"), default=True)
 
 
+def _get_mcp_denylist() -> set[str]:
+    """MCP toolset names to strip from children after inheritance.
+
+    Reads ``mcp_denylist`` from the delegation config subsection (already
+    extracted by ``_load_config()``).  Each entry is an MCP toolset name
+    (e.g. ``mcp-cua-driver``) removed from the child's resolved list
+    *after* MCP inheritance and the blocked-tools strip.  Empty/missing is
+    a no-op — default behaviour is preserved.
+    """
+    cfg = _load_config()
+    raw = cfg.get("mcp_denylist") or []
+    if not isinstance(raw, list):
+        return set()
+    return {str(s).strip() for s in raw if str(s).strip()}
+
+
+def _apply_mcp_denylist(toolsets: list[str], denylist: set[str]) -> list[str]:
+    """Remove denied MCP toolsets from a resolved toolset list.
+
+    Only removes entries that match the denylist AND look like MCP toolsets
+    (prefix ``mcp-`` or a known alias).  Non-MCP toolsets are never touched.
+    Returns a new list; does not mutate the input.
+    """
+    if not denylist:
+        return toolsets
+    return [t for t in toolsets if t not in denylist or not _is_mcp_toolset_name(t)]
+
+
 def _is_mcp_toolset_name(name: str) -> bool:
     """Return True for canonical MCP toolsets and their registered aliases."""
     if not name:
@@ -1135,6 +1163,12 @@ def _build_child_agent(
         child_toolsets = _strip_blocked_tools(sorted(parent_toolsets))
     else:
         child_toolsets = _strip_blocked_tools(DEFAULT_TOOLSETS)
+
+    # SEC-05: apply generic MCP denylist after all inheritance/stripping.
+    # This is the single denylist application point for delegation.
+    _denylist = _get_mcp_denylist()
+    if _denylist:
+        child_toolsets = _apply_mcp_denylist(child_toolsets, _denylist)
 
     # Orchestrators retain the 'delegation' toolset that _strip_blocked_tools
     # removed.  The re-add is unconditional on parent-toolset membership because
