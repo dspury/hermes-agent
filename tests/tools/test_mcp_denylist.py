@@ -310,6 +310,70 @@ class TestMcpDenylistConfigIntegration(unittest.TestCase):
                     os.environ.pop("HERMES_HOME", None)
 
 
+
+# ---------------------------------------------------------------------------
+# E2E: temp HERMES_HOME → real config → _build_child_agent
+# ---------------------------------------------------------------------------
+
+class TestMcpDenylistE2E(unittest.TestCase):
+    """Full E2E: temp config.yaml → real loader → _build_child_agent.
+
+    Only AIAgent construction is patched (the seam).  Config reading
+    goes through the real shared loader so the entire config-to-child-
+    toolset security path is proven without mocks.
+    """
+
+    def test_e2e_denylist_from_real_config_to_child_toolsets(self):
+        """Write config, delegate, assert denylisted MCP is stripped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = os.path.join(tmp, ".hermes")
+            os.makedirs(config_dir)
+            config_path = os.path.join(config_dir, "config.yaml")
+            with open(config_path, "w") as f:
+                f.write(textwrap.dedent("""\
+                    delegation:
+                      inherit_mcp_toolsets: true
+                      mcp_denylist:
+                        - mcp-cua-driver
+                """))
+
+            old_home = os.environ.get("HERMES_HOME")
+            try:
+                os.environ["HERMES_HOME"] = config_dir
+
+                parent = _make_mock_parent()
+                parent.enabled_toolsets = [
+                    "terminal", "file", "web", "mcp-cua-driver", "mcp-blender",
+                ]
+                parent.valid_tool_names = [
+                    "terminal", "file", "web", "mcp-cua-driver", "mcp-blender",
+                ]
+
+                with patch("run_agent.AIAgent") as MockAgent:
+                    MockAgent.return_value = MagicMock()
+                    _build_child_agent(
+                        task_index=0,
+                        goal="E2E test",
+                        context=None,
+                        toolsets=None,
+                        model=None,
+                        max_iterations=10,
+                        parent_agent=parent,
+                        task_count=1,
+                    )
+                    result = MockAgent.call_args[1]["enabled_toolsets"]
+
+                assert "mcp-cua-driver" not in result,                     f"Denied MCP toolset leaked: {result}"
+                assert "mcp-blender" in result,                     f"Allowed MCP toolset missing: {result}"
+                assert "terminal" in result,                     f"Non-MCP toolset missing: {result}"
+                assert "file" in result
+                assert "web" in result
+            finally:
+                if old_home is not None:
+                    os.environ["HERMES_HOME"] = old_home
+                else:
+                    os.environ.pop("HERMES_HOME", None)
+
 # ---------------------------------------------------------------------------
 # Cron no_mcp regression — existing path, focused coverage
 # ---------------------------------------------------------------------------
